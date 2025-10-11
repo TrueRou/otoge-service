@@ -15,6 +15,8 @@ settings = get_settings()
 async def init_lifespan(asgi_app: FastAPI):
     asyncio.create_task(sessions.maimai_client.songs())
     await sessions.init_db()
+    if settings.enable_developer_check:
+        await sessions.init_developers()
     yield  # Above: Startup process Below: Shutdown process
     await sessions.async_engine.dispose()
 

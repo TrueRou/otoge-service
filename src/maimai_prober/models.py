@@ -4,7 +4,7 @@ from typing import Self
 
 from maimai_py import Score as MpyScore
 from maimai_py.models import FCType, FSType, LevelIndex, RateType, SongType
-from sqlmodel import JSON, Column, Field, SQLModel
+from sqlmodel import Field, SQLModel
 
 
 class Score(SQLModel, table=True):
@@ -91,3 +91,14 @@ class Score(SQLModel, table=True):
             if selected_value is not None:
                 self.updated_at = datetime.utcnow()
         return self
+
+
+class Developer(SQLModel, table=True):
+    __tablename__ = "tbl_developer"  # type: ignore
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    token: str = Field(unique=True, index=True)
+    description: str | None = Field(default=None)
+    enabled: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
