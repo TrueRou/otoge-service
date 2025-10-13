@@ -1,11 +1,11 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from maimai_py import MaimaiPyError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -13,7 +13,6 @@ from starlette.responses import JSONResponse, Response
 
 from maimai_prober import sessions
 from maimai_prober.exceptions import LeporidException
-from maimai_prober.loggings import Ansi, log
 from maimai_prober.settings import get_settings
 
 settings = get_settings()
@@ -93,6 +92,62 @@ def init_middleware(asgi_app: FastAPI) -> None:
     asgi_app.add_middleware(SuccessResponseMiddleware)
 
 
+def init_openapi(asgi_app: FastAPI) -> None:
+    def custom_openapi():
+        if asgi_app.openapi_schema:
+            return asgi_app.openapi_schema
+
+        openapi_schema = get_openapi(
+            title=asgi_app.title,
+            version=asgi_app.version,
+            description=asgi_app.description,
+            routes=asgi_app.routes,
+        )
+
+        components = openapi_schema.setdefault("components", {}).setdefault("schemas", {})
+        components["LeporidResponse"] = {
+            "title": "LeporidResponse",
+            "type": "object",
+            "properties": {
+                "code": {"type": "integer", "example": 200},
+                "node": {"type": "string", "example": "success"},
+                "message": {"type": ["string", "null"], "example": None},
+                "data": {"nullable": True},
+            },
+            "required": ["code", "node", "message", "data"],
+        }
+
+        for path_item in openapi_schema.get("paths", {}).values():
+            for operation in path_item.values():
+                for response in operation.get("responses", {}).values():
+                    content = response.get("content")
+                    if not content:
+                        continue
+                    json_content = content.get("application/json")
+                    if not json_content:
+                        continue
+                    original_schema = json_content.get("schema") or {"nullable": True}
+                    json_content["schema"] = {
+                        "allOf": [
+                            {"$ref": "#/components/schemas/LeporidResponse"},
+                            {"type": "object", "properties": {"data": original_schema}},
+                        ]
+                    }
+
+        if paths := openapi_schema.get("paths"):
+            for _, method_item in paths.items():
+                for _, param in method_item.items():
+                    for key in list(param["responses"].keys()):
+                        # Remove 4xx and 5xx responses from the OpenAPI schema
+                        if key.startswith("4") or key.startswith("5"):
+                            del param["responses"][key]
+
+        asgi_app.openapi_schema = openapi_schema
+        return asgi_app.openapi_schema
+
+    asgi_app.openapi = custom_openapi
+
+
 def init_api() -> FastAPI:
     """Create & initialize our app."""
     asgi_app = FastAPI(lifespan=init_lifespan)
@@ -100,6 +155,7 @@ def init_api() -> FastAPI:
     init_routes(asgi_app)
     init_exception_handlers(asgi_app)
     init_middleware(asgi_app)
+    init_openapi(asgi_app)
 
     return asgi_app
 
