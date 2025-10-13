@@ -9,6 +9,7 @@ from maimai_py import IScoreProvider, IScoreUpdateProvider, MaimaiClient, Player
 from maimai_py.models import Score as MpyScore
 from sqlmodel import col, select
 
+from maimai_prober.exceptions import LeporidException
 from maimai_prober.models import Score
 from maimai_prober.sessions import async_session_ctx
 
@@ -22,7 +23,7 @@ class UsagiCardProvider(IScoreProvider, IScoreUpdateProvider):
     def _check_uuid(self, identifier: PlayerIdentifier) -> str:
         assert isinstance(identifier.credentials, str), "Identifier credentials must be a string"
         if not uuid_pattern.match(identifier.credentials):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Identifier credentials must be a valid UUID")
+            raise LeporidException.INVALID_CREDENTIALS.with_detail("Identifier credentials must be a valid UUID")
         return identifier.credentials
 
     async def get_scores_all(self, identifier: PlayerIdentifier, client: MaimaiClient) -> list[MpyScore]:

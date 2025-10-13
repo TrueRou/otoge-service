@@ -1,14 +1,51 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from maimai_py import MaimaiPyError
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
 from maimai_prober import sessions
+from maimai_prober.exceptions import LeporidException
 from maimai_prober.loggings import Ansi, log
 from maimai_prober.settings import get_settings
 
 settings = get_settings()
+
+
+class SuccessResponseMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        if request.url.path.endswith("/openapi.json"):
+            return response
+        if not 200 <= response.status_code < 300:
+            return response
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type.lower():
+            return response
+        if hasattr(response, "body_iterator"):
+            raw_body = b"".join([chunk async for chunk in response.body_iterator])  # type: ignore
+        else:
+            raw_body = getattr(response, "body", b"")
+        if raw_body in (None, b""):
+            data = None
+        else:
+            charset = getattr(response, "charset", "utf-8") or "utf-8"
+            try:
+                data = json.loads(raw_body.decode(charset))
+            except (ValueError, UnicodeDecodeError):
+                return response
+        payload = {"code": 200, "node": "success", "detail": None, "data": data}
+        headers = {k: v for k, v in response.headers.items() if k.lower() not in {"content-length", "content-type"}}
+        wrapped_response = JSONResponse(payload, status_code=response.status_code, headers=headers)
+        wrapped_response.background = response.background
+        return wrapped_response
 
 
 @asynccontextmanager
@@ -31,11 +68,38 @@ def init_routes(asgi_app: FastAPI) -> None:
     asgi_app.include_router(router)
 
 
+def init_exception_handlers(asgi_app: FastAPI) -> None:
+    @asgi_app.exception_handler(MaimaiPyError)
+    async def maimai_py_error_handler(request, exception: MaimaiPyError):
+        return LeporidException.BAD_REQUEST.with_detail_ex("maimai-py-error", repr(exception)).as_response()
+
+    @asgi_app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request, error: RequestValidationError):
+        details_list = []
+        for err in error.errors():
+            details_list.append({"message": str(err)})
+        return LeporidException.VALIDATION_ERROR.with_detail(str(details_list)).as_response()
+
+    @asgi_app.exception_handler(Exception)
+    async def general_exception_handler(request, exception: Exception):
+        return LeporidException.INTERNAL_SERVER_ERROR.with_detail(repr(exception)).as_response()
+
+    @asgi_app.exception_handler(LeporidException)
+    async def leporid_exception_handler(request, ex: LeporidException):
+        return ex.as_response()
+
+
+def init_middleware(asgi_app: FastAPI) -> None:
+    asgi_app.add_middleware(SuccessResponseMiddleware)
+
+
 def init_api() -> FastAPI:
     """Create & initialize our app."""
     asgi_app = FastAPI(lifespan=init_lifespan)
 
     init_routes(asgi_app)
+    init_exception_handlers(asgi_app)
+    init_middleware(asgi_app)
 
     return asgi_app
 
@@ -44,7 +108,6 @@ asgi_app = init_api()
 
 
 def main():
-    log(f"Uvicorn running on http://{settings.bind_host}:{str(settings.bind_port)} (Press CTRL+C to quit)", Ansi.YELLOW)
     uvicorn.run("maimai_prober.entrypoint:asgi_app", port=settings.bind_port, host=settings.bind_host)
 
 

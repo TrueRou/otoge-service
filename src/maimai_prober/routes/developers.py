@@ -1,9 +1,10 @@
 import secrets
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 from sqlmodel import select
 
 from maimai_prober import sessions
+from maimai_prober.exceptions import LeporidException
 from maimai_prober.models import Developer
 from maimai_prober.sessions import async_session_ctx
 
@@ -26,4 +27,4 @@ async def get_developer(developer_token: str):
     async with async_session_ctx() as session:
         developer = (await session.exec(select(Developer).where(Developer.token == developer_token))).first()
         return developer
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Developer token not found")
+    raise LeporidException.INVALID_CREDENTIALS.with_detail("Invalid developer token")
