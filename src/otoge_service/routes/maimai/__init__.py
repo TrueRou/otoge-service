@@ -20,6 +20,7 @@ if settings.enable_maimai_assets:
     router.include_router(routes.get_router(routes._dep_hybrid, skip_base=False))
     router.include_router(characters.router)  # add maimai characters route (next to the included base routes)
 router.include_router(chains.get_router(routes))  # add maimai update chain route
+router.include_router(routes.get_wechat_oauth_route())  # add wechat oauth route
 router.include_router(routes.get_router(routes._dep_divingfish, routes._dep_divingfish_player), prefix="/divingfish")
 router.include_router(routes.get_router(routes._dep_lxns, routes._dep_lxns_player), prefix="/lxns")
 router.include_router(routes.get_router(routes._dep_wechat, routes._dep_wechat_player), prefix="/wechat")

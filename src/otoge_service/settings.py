@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # application settings
     bind_host: str = "127.0.0.1"
-    bind_port: int = 7100
+    bind_port: int = 8200
     redis_url: str | None = None
     database_url: str = f"sqlite+aiosqlite:///database.db"
 
